@@ -1,4 +1,6 @@
-# sv
+# Gabriel — Portfolio Frontend
+
+A hacker/terminal-style portfolio built with SvelteKit + Tailwind CSS.
 
 Everything you need to build a Svelte project, powered by [`sv`](https://github.com/sveltejs/cli).
 
