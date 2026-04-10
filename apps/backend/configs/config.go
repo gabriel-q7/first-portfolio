@@ -3,6 +3,7 @@ package configs
 import (
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -207,14 +208,9 @@ func getStringSlice(key string) []string {
 		return nil
 	}
 	var result []string
-	start := 0
-	for i := 0; i <= len(v); i++ {
-		if i == len(v) || v[i] == ',' {
-			part := v[start:i]
-			if len(part) > 0 {
-				result = append(result, part)
-			}
-			start = i + 1
+	for _, part := range strings.Split(v, ",") {
+		if part != "" {
+			result = append(result, part)
 		}
 	}
 	return result

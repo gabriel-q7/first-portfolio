@@ -48,7 +48,8 @@ func (rl *RateLimiter) Middleware() func(http.Handler) http.Handler {
 			limiter := rl.getVisitor(ip)
 			if !limiter.Allow() {
 				rl.log.Warn("rate limit exceeded", "ip", ip, "path", r.URL.Path)
-				w.Header().Set("Retry-After", "1")
+				retryAfter := strconv.FormatFloat(1/float64(rl.rate), 'f', 0, 64)
+				w.Header().Set("Retry-After", retryAfter)
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusTooManyRequests)
 				_ = json.NewEncoder(w).Encode(map[string]string{

@@ -188,6 +188,9 @@ func (c *Client) do(req *http.Request) ([]byte, int, error) {
 			lastErr = fmt.Errorf("server error status %d", resp.StatusCode)
 			c.circuitBreaker.recordFailure()
 			c.logger.Error("External API server error", "status", resp.StatusCode, "url", req.URL.String())
+			// For POST requests with a body, body re-reading on retry is not supported
+			// because http.Request.Body is consumed after the first read. Callers that
+			// need idempotent retry on POST should reconstruct the request themselves.
 			continue
 		}
 
