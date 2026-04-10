@@ -48,8 +48,14 @@ func (rl *RateLimiter) Middleware() func(http.Handler) http.Handler {
 			limiter := rl.getVisitor(ip)
 			if !limiter.Allow() {
 				rl.log.Warn("rate limit exceeded", "ip", ip, "path", r.URL.Path)
-				retryAfter := strconv.FormatFloat(1/float64(rl.rate), 'f', 0, 64)
-				w.Header().Set("Retry-After", retryAfter)
+				// Retry-After: number of seconds until the next token is available.
+				// For low rates (< 1 req/s) this gives the correct wait in seconds;
+				// for high rates we floor at 1 so clients always see a meaningful value.
+				retrySeconds := 1
+				if rl.rate > 0 && rl.rate < 1 {
+					retrySeconds = int(1/float64(rl.rate)) + 1
+				}
+				w.Header().Set("Retry-After", strconv.Itoa(retrySeconds))
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusTooManyRequests)
 				_ = json.NewEncoder(w).Encode(map[string]string{
