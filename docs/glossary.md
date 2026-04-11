@@ -20,7 +20,7 @@ The static map of supported terminal commands defined in `src/lib/commands/index
 The finite set of commands accepted by the terminal: `help`, `about`, `projects`, `contact`, `clear`. Any other input produces an error.
 
 **CRT effect**
-The visual style applied to the terminal: green phosphor colour scheme, scanlines overlay, subtle glow. Implemented entirely in CSS.
+The visual style applied to the terminal: green phosphor color scheme, scanlines overlay, subtle glow. Implemented entirely in CSS.
 
 **Featured project**
 A `Project` entity with `Featured: true`. Intended to surface highlighted work via a dedicated API filter (not yet exposed as a separate endpoint).
