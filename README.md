@@ -1,99 +1,107 @@
 # gabriel-q7 — Portfolio Monorepo
 
-A monorepo containing the frontend, backend, infrastructure and automation scripts for the portfolio project.
+A monorepo containing the frontend and backend for a hacker/terminal-style personal portfolio.
 
-## Structure
+## What It Is
+
+An interactive portfolio presented as a fake terminal. Visitors type commands (`help`, `about`, `projects`, `contact`) and see styled output. The backend exposes a REST API that serves project data and health endpoints.
+
+## Monorepo Structure
 
 ```
 first-portfolio/
 ├── apps/
-│   ├── frontend/      # SvelteKit hacker-terminal UI (TypeScript + Tailwind CSS v4)
-│   └── backend/       # Backend service (to be implemented)
-│
-├── infra/             # Docker, Terraform, etc.
-├── scripts/           # Automation scripts
-├── docs/              # Project documentation
-│
-├── docker-compose.yml
-├── Makefile
+│   ├── frontend/          # SvelteKit 5 hacker-terminal UI
+│   └── backend/           # Go REST API
+├── docs/                  # Architecture, business rules, decisions, API docs
+├── docker-compose.yml     # Full-stack local environment
+├── Makefile               # Root convenience targets
 └── README.md
 ```
 
-## Apps
+## Stack
 
-### `apps/frontend`
+| Layer    | Technology                                      |
+|----------|-------------------------------------------------|
+| Frontend | SvelteKit 5 · Tailwind CSS v4 · TypeScript      |
+| Backend  | Go 1.23 · net/http · PostgreSQL · Redis         |
+| Infra    | Docker · Docker Compose                         |
 
-A portfolio interface built with a **hacker/terminal aesthetic**. Features:
-
-- **Stack**: SvelteKit 5 · Tailwind CSS v4 · TypeScript · `@sveltejs/adapter-node`
-- Boot sequence animation on load
-- Interactive terminal with commands: `help`, `about`, `projects`, `contact`, `clear`
-- Blinking cursor, CRT scanlines overlay, subtle green glow
-- JetBrains Mono font, macOS-style window chrome
-- API service layer ready to connect to the backend via `VITE_API_URL`
-
-#### Running locally
-
-```bash
-cd apps/frontend
-cp .env.example .env     # set VITE_API_URL if needed
-npm install
-npm run dev              # starts on http://localhost:5173
-```
-
-#### Environment variables
-
-| Variable       | Default                   | Description              |
-|----------------|---------------------------|--------------------------|
-| `VITE_API_URL` | `http://localhost:8080`   | Backend API base URL     |
-
-### `apps/backend`
-
-Backend service — to be implemented. Will expose:
-- `GET /health` — healthcheck
-- `GET /projects` — projects list
-
----
-
-## Getting Started (Docker)
+## Getting Started
 
 ### Prerequisites
 
 - [Docker](https://www.docker.com/) and [Docker Compose](https://docs.docker.com/compose/)
 - [Make](https://www.gnu.org/software/make/)
 
-### Running the project
+### Run with Docker Compose (recommended)
 
 ```bash
-# Build all services
+# Build all images
 make build
 
-# Start all services in detached mode
+# Start all services (frontend, backend, postgres, redis)
 make up
 
-# View logs
+# Stream logs
 make logs
 
 # Stop all services
 make down
 ```
 
-The frontend will be available at **http://localhost:3000**.
+| Service  | URL                        |
+|----------|----------------------------|
+| Frontend | http://localhost:3000       |
+| Backend  | http://localhost:8080       |
+| Postgres | localhost:5432              |
+| Redis    | localhost:6379              |
 
----
+### Run locally without Docker
 
-## Architecture decisions
+```bash
+# Frontend
+cd apps/frontend
+cp .env.example .env
+npm install
+npm run dev          # http://localhost:5173
 
-- **Monorepo layout**: `apps/` for deployable services; `packages/` (future) for shared types/configs.
-- **Frontend isolation**: the frontend has its own `package.json`, `Dockerfile`, and `.env` — fully independent build and deploy.
-- **No hardcoded endpoints**: all API calls go through `src/lib/services/api.ts`, reading from `VITE_API_URL`.
-- **Svelte 5 runes**: uses the modern `$state`, `$props`, and `$derived` primitives for clean reactivity.
-- **Tailwind v4**: CSS-first configuration via `@import "tailwindcss"` in `app.css`; custom design tokens as CSS variables.
+# Backend
+cd apps/backend
+cp .env.example .env
+make run             # http://localhost:8080
+```
 
-## Future evolution
+## Available Scripts (root)
 
-- Add `packages/ui` for shared headless components across apps
-- Add `packages/types` for shared TypeScript types between frontend and backend
-- Implement the backend and wire up `fetchProjects()` and `fetchHealthcheck()`
-- Add CI/CD pipeline (e.g., GitHub Actions) for independent builds per app
-- Add E2E tests with Playwright
+| Command              | Description                              |
+|----------------------|------------------------------------------|
+| `make build`         | Build all Docker images                  |
+| `make up`            | Start all services in detached mode      |
+| `make down`          | Stop all services                        |
+| `make logs`          | Tail logs for all services               |
+| `make backend-build` | Compile the Go binary                    |
+| `make backend-run`   | Run the backend directly (no Docker)     |
+| `make backend-test`  | Run Go tests                             |
+| `make backend-lint`  | Run golangci-lint on backend             |
+| `make frontend-dev`  | Start frontend dev server                |
+
+## Apps
+
+- **[apps/frontend](apps/frontend/README.md)** — SvelteKit terminal UI
+- **[apps/backend](apps/backend/README.md)** — Go REST API
+
+## Documentation
+
+| Document | Description |
+|----------|-------------|
+| [docs/architecture/overview.md](docs/architecture/overview.md) | System-level architecture |
+| [docs/architecture/frontend.md](docs/architecture/frontend.md) | Frontend architecture |
+| [docs/architecture/backend.md](docs/architecture/backend.md) | Backend architecture |
+| [docs/business-rules/terminal-commands.md](docs/business-rules/terminal-commands.md) | Terminal command rules |
+| [docs/business-rules/session-history.md](docs/business-rules/session-history.md) | Session history behaviour |
+| [docs/business-rules/error-handling.md](docs/business-rules/error-handling.md) | Error handling rules |
+| [docs/api/endpoints.md](docs/api/endpoints.md) | REST API reference |
+| [docs/decisions/](docs/decisions/) | Architectural Decision Records |
+| [docs/glossary.md](docs/glossary.md) | Domain glossary |
+| [docs/conventions.md](docs/conventions.md) | Documentation conventions |
