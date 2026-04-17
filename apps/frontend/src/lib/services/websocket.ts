@@ -65,7 +65,8 @@ export class WebSocketService {
     this.ws.onclose = () => {
       this.onClose?.();
       if (!this.closed && this.retryCount < this.maxRetries) {
-        const delay = Math.min(1000 * 2 ** this.retryCount, 30_000);
+        const cappedRetry = Math.min(this.retryCount, 5);
+        const delay = Math.min(1000 * 2 ** cappedRetry, 30_000);
         this.retryCount++;
         this.retryTimeout = setTimeout(() => this.connect(), delay);
       }

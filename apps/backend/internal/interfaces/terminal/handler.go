@@ -124,7 +124,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				cmdCtx, cancel := context.WithCancel(session.Context())
 				cmdCancel = cancel
 
-				go func(ctx context.Context, p ParsedCommand, o OutputStream, reqID string, cancelFn context.CancelFunc) {
+				go func(ctx context.Context, p ParsedCommand, o OutputStream, cancelFn context.CancelFunc) {
 					defer cancelFn()
 					defer func() { _ = o.Close() }()
 
@@ -137,7 +137,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 						}
 						_ = o.WriteError(err.Error())
 					}
-				}(cmdCtx, parsed, out, msg.RequestID, cancel)
+				}(cmdCtx, parsed, out, cancel)
+				// Reset cmdCancel only after the goroutine finishes; the goroutine
+				// holds its own reference so double-calling cancel is safe (idempotent).
+				cmdCancel = cancel
 			}
 		}
 	}
