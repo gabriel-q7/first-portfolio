@@ -11,11 +11,11 @@ type ParsedCommand struct {
 	Args []string
 }
 
-// Parse tokenises a raw input string into a ParsedCommand.
+// Parse tokenizes a raw input string into a ParsedCommand.
 // It handles single- and double-quoted argument groups so that
 // chat ask "hello world" is passed as a single argument.
 func Parse(input string) ParsedCommand {
-	tokens := tokenise(input)
+	tokens := tokenize(input)
 	if len(tokens) == 0 {
 		return ParsedCommand{}
 	}
@@ -25,8 +25,8 @@ func Parse(input string) ParsedCommand {
 	}
 }
 
-// tokenise splits a string on whitespace while respecting quoted sections.
-func tokenise(s string) []string {
+// tokenize splits a string on whitespace while respecting quoted sections.
+func tokenize(s string) []string {
 	var tokens []string
 	var cur strings.Builder
 	inQuote := rune(0)

@@ -4,6 +4,7 @@ const WS_URL = import.meta.env.VITE_WS_URL ?? 'ws://localhost:8080/ws/terminal';
 
 const RECONNECT_DELAY_MS = 2000;
 const MAX_RECONNECT_ATTEMPTS = 10;
+const MAX_DELAY_MULTIPLIER = 5;
 
 type MessageHandler = (msg: WsServerMessage) => void;
 type StatusHandler = (status: 'connecting' | 'connected' | 'disconnected') => void;
@@ -82,7 +83,7 @@ export class TerminalSocket {
     if (this.destroyed) return;
     if (this.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) return;
     this.reconnectAttempts++;
-    const delay = RECONNECT_DELAY_MS * Math.min(this.reconnectAttempts, 5);
+    const delay = RECONNECT_DELAY_MS * Math.min(this.reconnectAttempts, MAX_DELAY_MULTIPLIER);
     this.reconnectTimer = setTimeout(() => {
       if (!this.destroyed) this.connect();
     }, delay);

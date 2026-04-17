@@ -55,6 +55,10 @@ func (s *Session) SendStatus(msg string) error {
 
 // startCommand sets a new active command cancel function,
 // cancelling any previously running command first.
+// Note: WebSocket messages are consumed sequentially by a single goroutine
+// (see handler.go), so two startCommand calls cannot race with each other.
+// The returned cancel is also stored in s.cancel so that cancelCommand() can
+// interrupt the running command from the read loop on disconnect.
 func (s *Session) startCommand(ctx context.Context) (context.Context, context.CancelFunc) {
 	s.mu.Lock()
 	if s.cancel != nil {
