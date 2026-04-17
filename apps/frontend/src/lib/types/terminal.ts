@@ -10,7 +10,7 @@ export interface TerminalLine {
 export interface Command {
   name: string;
   description: string;
-  handler: () => TerminalLine[];
+  handler: () => Omit<TerminalLine, 'id' | 'timestamp'>[];
 }
 
 export interface Project {
@@ -24,4 +24,17 @@ export interface ApiResponse<T> {
   data: T | null;
   error: string | null;
   loading: boolean;
+}
+
+// WebSocket protocol types shared with the backend.
+export type WsMessageType = 'command' | 'output' | 'done' | 'error' | 'status';
+
+export interface WsClientMessage {
+  type: 'command';
+  payload: string;
+}
+
+export interface WsServerMessage {
+  type: WsMessageType;
+  payload: string;
 }

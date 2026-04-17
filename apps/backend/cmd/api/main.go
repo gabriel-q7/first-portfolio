@@ -21,7 +21,10 @@ import (
 	"github.com/gabriel-q7/portfolio/backend/internal/infrastructure/queue"
 	httpHandler "github.com/gabriel-q7/portfolio/backend/internal/interfaces/http"
 	"github.com/gabriel-q7/portfolio/backend/internal/interfaces/http/handler"
+	wsHandler "github.com/gabriel-q7/portfolio/backend/internal/interfaces/ws"
 	"github.com/gabriel-q7/portfolio/backend/internal/middleware"
+	"github.com/gabriel-q7/portfolio/backend/internal/terminal"
+	termHandler "github.com/gabriel-q7/portfolio/backend/internal/terminal/handler"
 	projectUseCase "github.com/gabriel-q7/portfolio/backend/internal/usecase/project"
 	apperrors "github.com/gabriel-q7/portfolio/backend/pkg/errors"
 	"github.com/gabriel-q7/portfolio/backend/pkg/logger"
@@ -89,7 +92,6 @@ func main() {
 		log.Info("no AI_API_KEY set, using noop AI client")
 		ai = &aiClient.NoopAIClient{}
 	}
-	_ = ai // Injected into jobs when needed.
 
 	// Initialize external API client.
 	extAPI := extClient.New(extClient.Config{
@@ -108,6 +110,18 @@ func main() {
 	// Initialize use cases.
 	projService := projectUseCase.New(projectRepo, cacheRepo, log, m)
 
+	// Build the terminal command router.
+	termRouter := terminal.NewRouter()
+	termRouter.Register("help", &termHandler.HelpHandler{})
+	termRouter.Register("about", &termHandler.AboutHandler{})
+	termRouter.Register("contact", &termHandler.ContactHandler{})
+	termRouter.Register("skills", &termHandler.SkillsHandler{})
+	termRouter.Register("experience", &termHandler.ExperienceHandler{})
+	termRouter.Register("projects", termHandler.NewProjectsHandler(projService))
+	termRouter.Register("chat", termHandler.NewChatHandler(ai))
+	termRouter.Register("db", termHandler.NewDBHandler(projService))
+	terminalH := wsHandler.NewTerminalHandler(termRouter, log)
+
 	// Initialize handlers.
 	healthH := handler.NewHealthHandler("1.0.0", log)
 	projectH := handler.NewProjectHandler(projService, log)
@@ -118,13 +132,14 @@ func main() {
 
 	// Build router.
 	router := httpHandler.New(httpHandler.Dependencies{
-		HealthHandler:  healthH,
-		ProjectHandler: projectH,
-		RateLimiter:    rl,
-		AuthMiddleware: authMW,
-		Metrics:        m,
-		Logger:         log,
-		IsProd:         cfg.IsProd(),
+		HealthHandler:   healthH,
+		ProjectHandler:  projectH,
+		TerminalHandler: terminalH,
+		RateLimiter:     rl,
+		AuthMiddleware:  authMW,
+		Metrics:         m,
+		Logger:          log,
+		IsProd:          cfg.IsProd(),
 	})
 
 	srv := &http.Server{

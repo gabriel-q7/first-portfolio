@@ -12,14 +12,51 @@
   let value = $state('');
   let inputEl: HTMLInputElement;
 
+  // Command history
+  let history: string[] = $state([]);
+  let historyIndex = $state(-1);
+  let savedInput = $state('');
+
   export function focus() {
     inputEl?.focus();
   }
 
   function handleKeydown(event: KeyboardEvent) {
     if (event.key === 'Enter') {
+      const trimmed = value.trim();
+      if (trimmed) {
+        history = [...history, trimmed];
+        historyIndex = -1;
+        savedInput = '';
+      }
       onsubmit?.(value);
       value = '';
+      return;
+    }
+
+    if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      if (history.length === 0) return;
+      if (historyIndex === -1) {
+        savedInput = value;
+        historyIndex = history.length - 1;
+      } else if (historyIndex > 0) {
+        historyIndex--;
+      }
+      value = history[historyIndex];
+      return;
+    }
+
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      if (historyIndex === -1) return;
+      if (historyIndex < history.length - 1) {
+        historyIndex++;
+        value = history[historyIndex];
+      } else {
+        historyIndex = -1;
+        value = savedInput;
+      }
     }
   }
 </script>

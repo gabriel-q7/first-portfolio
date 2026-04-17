@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/gabriel-q7/portfolio/backend/internal/interfaces/http/handler"
+	"github.com/gabriel-q7/portfolio/backend/internal/interfaces/ws"
 	"github.com/gabriel-q7/portfolio/backend/internal/middleware"
 	"github.com/gabriel-q7/portfolio/backend/pkg/logger"
 	"github.com/gabriel-q7/portfolio/backend/pkg/metrics"
@@ -12,13 +13,14 @@ import (
 
 // Dependencies holds all handler and middleware dependencies for the router.
 type Dependencies struct {
-	HealthHandler  *handler.HealthHandler
-	ProjectHandler *handler.ProjectHandler
-	RateLimiter    *middleware.RateLimiter
-	AuthMiddleware *middleware.ExportedAuthMiddleware
-	Metrics        *metrics.Metrics
-	Logger         logger.Logger
-	IsProd         bool
+	HealthHandler   *handler.HealthHandler
+	ProjectHandler  *handler.ProjectHandler
+	TerminalHandler *ws.TerminalHandler
+	RateLimiter     *middleware.RateLimiter
+	AuthMiddleware  *middleware.ExportedAuthMiddleware
+	Metrics         *metrics.Metrics
+	Logger          logger.Logger
+	IsProd          bool
 }
 
 // Router assembles the HTTP routing table and middleware chain.
@@ -42,6 +44,11 @@ func (ro *Router) SetupRoutes() http.Handler {
 
 	// Metrics (no auth).
 	mux.Handle("GET /metrics", ro.deps.Metrics.Handler())
+
+	// Terminal WebSocket endpoint (no auth, rate-limited by the outer chain).
+	if ro.deps.TerminalHandler != nil {
+		mux.Handle("/ws/terminal", ro.deps.TerminalHandler)
+	}
 
 	// Public read routes.
 	mux.HandleFunc("GET /api/v1/projects", ro.deps.ProjectHandler.List)
