@@ -136,3 +136,55 @@ All error responses share the same JSON shape:
 ## Rate Limiting
 
 All routes are subject to a token-bucket rate limiter. Defaults: 100 requests/second, burst of 200. On limit exceeded the response is `429 Too Many Requests`.
+
+---
+
+## WebSocket Terminal
+
+### `GET /ws`
+
+Upgrades the HTTP connection to a WebSocket terminal session. No authentication required.
+
+The session ends when the WebSocket connection closes.
+
+**Client → Server messages**
+
+```json
+{
+  "type": "command",
+  "request_id": "abc123",
+  "command": "projects list",
+  "timestamp": "2024-01-01T00:00:00Z"
+}
+```
+
+```json
+{
+  "type": "cancel",
+  "request_id": "abc123",
+  "timestamp": "2024-01-01T00:00:00Z"
+}
+```
+
+**Server → Client messages**
+
+```json
+{ "type": "status",  "content": "connected — type 'help' for available commands", "timestamp": "..." }
+{ "type": "output",  "request_id": "abc123", "content": "  line of output", "timestamp": "..." }
+{ "type": "error",   "request_id": "abc123", "content": "  error message",  "timestamp": "..." }
+{ "type": "done",    "request_id": "abc123", "timestamp": "..." }
+```
+
+**Message types**
+
+| Type | Direction | Description |
+|---|---|---|
+| `command` | client → server | Execute a terminal command |
+| `cancel` | client → server | Cancel the current running command |
+| `output` | server → client | Incremental command output line |
+| `done` | server → client | Command execution complete |
+| `error` | server → client | Error output |
+| `status` | server → client | Session/connection status |
+
+See [terminal-commands.md](../business-rules/terminal-commands.md) for the full command reference.
+
