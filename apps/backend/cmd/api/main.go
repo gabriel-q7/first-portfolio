@@ -21,6 +21,8 @@ import (
 	"github.com/gabriel-q7/portfolio/backend/internal/infrastructure/queue"
 	httpHandler "github.com/gabriel-q7/portfolio/backend/internal/interfaces/http"
 	"github.com/gabriel-q7/portfolio/backend/internal/interfaces/http/handler"
+	"github.com/gabriel-q7/portfolio/backend/internal/interfaces/terminal"
+	"github.com/gabriel-q7/portfolio/backend/internal/interfaces/terminal/commands"
 	"github.com/gabriel-q7/portfolio/backend/internal/middleware"
 	projectUseCase "github.com/gabriel-q7/portfolio/backend/internal/usecase/project"
 	apperrors "github.com/gabriel-q7/portfolio/backend/pkg/errors"
@@ -89,7 +91,7 @@ func main() {
 		log.Info("no AI_API_KEY set, using noop AI client")
 		ai = &aiClient.NoopAIClient{}
 	}
-	_ = ai // Injected into jobs when needed.
+	_ = ai // Used by terminal chat command.
 
 	// Initialize external API client.
 	extAPI := extClient.New(extClient.Config{
@@ -112,19 +114,29 @@ func main() {
 	healthH := handler.NewHealthHandler("1.0.0", log)
 	projectH := handler.NewProjectHandler(projService, log)
 
+	// Initialize terminal command router.
+	terminalRouter := terminal.NewRouter()
+	commands.RegisterBasicCommands(terminalRouter)
+	commands.RegisterProjectCommands(terminalRouter, projService)
+	commands.RegisterPortfolioCommands(terminalRouter)
+	commands.RegisterDBCommands(terminalRouter, projService)
+	commands.RegisterChatCommands(terminalRouter, ai)
+	terminalH := terminal.NewHandler(terminalRouter, log)
+
 	// Initialize middleware.
 	rl := middleware.NewRateLimiter(cfg.RateLimit.RequestsPerSecond, cfg.RateLimit.BurstSize, log, m)
 	authMW := middleware.NewAuthMiddleware(cfg.Auth.APIKeys, cfg.Auth.JWTSecret, log)
 
 	// Build router.
 	router := httpHandler.New(httpHandler.Dependencies{
-		HealthHandler:  healthH,
-		ProjectHandler: projectH,
-		RateLimiter:    rl,
-		AuthMiddleware: authMW,
-		Metrics:        m,
-		Logger:         log,
-		IsProd:         cfg.IsProd(),
+		HealthHandler:   healthH,
+		ProjectHandler:  projectH,
+		TerminalHandler: terminalH,
+		RateLimiter:     rl,
+		AuthMiddleware:  authMW,
+		Metrics:         m,
+		Logger:          log,
+		IsProd:          cfg.IsProd(),
 	})
 
 	srv := &http.Server{
