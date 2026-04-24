@@ -10,8 +10,8 @@
   const wsUrl: string = import.meta.env.VITE_WS_URL || 'ws://localhost:8080/ws';
 
   let container: HTMLDivElement;
-  let term: Terminal;
-  let fitAddon: FitAddon;
+  let term: InstanceType<typeof Terminal>;
+  let fitAddon: InstanceType<typeof FitAddon>;
   let wsService: WebSocketService;
 
   // Command history for up/down arrow navigation.
