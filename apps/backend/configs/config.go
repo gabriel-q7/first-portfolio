@@ -7,210 +7,166 @@ import (
 	"time"
 )
 
-// Config holds all application configuration.
 type Config struct {
-	Server      ServerConfig
-	Database    DatabaseConfig
-	AI          AIConfig
-	ExternalAPIs ExternalAPIsConfig
-	Auth        AuthConfig
-	RateLimit   RateLimitConfig
+	Server        ServerConfig
+	Database      DatabaseConfig
+	AI            AIConfig
+	Auth          AuthConfig
+	RateLimit     RateLimitConfig
 	Observability ObservabilityConfig
-	Environment string
+	Environment   string
 }
 
 type ServerConfig struct {
-	Port            string
-	ReadTimeout     time.Duration
-	WriteTimeout    time.Duration
-	IdleTimeout     time.Duration
-	RequestMaxBytes int64
+	Port              string
+	ReadHeaderTimeout time.Duration
+	ReadTimeout       time.Duration
+	WriteTimeout      time.Duration
+	IdleTimeout       time.Duration
+	ShutdownTimeout   time.Duration
+	RequestMaxBytes   int64
+	MaxHeaderBytes    int
+	TrustedProxyCIDR  string
 }
 
 type DatabaseConfig struct {
-	Postgres PostgresConfig
-	Redis    RedisConfig
+	SQLite SQLiteConfig
 }
 
-type PostgresConfig struct {
-	DSN             string
-	MaxOpenConns    int
-	MaxIdleConns    int
-	ConnMaxLifetime time.Duration
-}
-
-type RedisConfig struct {
-	Addr     string
-	Password string
-	DB       int
-	PoolSize int
+type SQLiteConfig struct {
+	Path         string
+	BusyTimeout  time.Duration
+	MaxOpenConns int
 }
 
 type AIConfig struct {
-	Provider   string
-	APIKey     string
-	BaseURL    string
-	Timeout    time.Duration
-	MaxRetries int
-	RateLimit  float64
-}
-
-type ExternalAPIsConfig struct {
-	Timeout    time.Duration
-	MaxRetries int
+	APIKey    string
+	BaseURL   string
+	RateLimit float64
 }
 
 type AuthConfig struct {
-	APIKeys   []string
-	JWTSecret string
+	APIKeys []string
 }
 
 type RateLimitConfig struct {
 	RequestsPerSecond float64
 	BurstSize         int
+	MaxVisitors       int
 }
 
 type ObservabilityConfig struct {
-	LogLevel        string
-	MetricsEnabled  bool
-	TracingEnabled  bool
+	LogLevel string
 }
 
-// Load reads configuration from environment variables with sensible defaults.
 func Load() *Config {
-	cfg := &Config{
+	return &Config{
 		Server: ServerConfig{
-			Port:            getEnv("SERVER_PORT", "8080"),
-			ReadTimeout:     getDuration("SERVER_READ_TIMEOUT", 15*time.Second),
-			WriteTimeout:    getDuration("SERVER_WRITE_TIMEOUT", 15*time.Second),
-			IdleTimeout:     getDuration("SERVER_IDLE_TIMEOUT", 60*time.Second),
-			RequestMaxBytes: getInt64("SERVER_REQUEST_MAX_BYTES", 1<<20), // 1 MB
+			Port:              getEnv("SERVER_PORT", "8080"),
+			ReadHeaderTimeout: getDuration("SERVER_READ_HEADER_TIMEOUT", 5*time.Second),
+			ReadTimeout:       getDuration("SERVER_READ_TIMEOUT", 15*time.Second),
+			WriteTimeout:      getDuration("SERVER_WRITE_TIMEOUT", 30*time.Second),
+			IdleTimeout:       getDuration("SERVER_IDLE_TIMEOUT", 60*time.Second),
+			ShutdownTimeout:   getDuration("SERVER_SHUTDOWN_TIMEOUT", 15*time.Second),
+			RequestMaxBytes:   getInt64("SERVER_REQUEST_MAX_BYTES", 1<<20),
+			MaxHeaderBytes:    getInt("SERVER_MAX_HEADER_BYTES", 16<<10),
+			TrustedProxyCIDR:  getEnv("TRUSTED_PROXY_CIDR", ""),
 		},
 		Database: DatabaseConfig{
-			Postgres: PostgresConfig{
-				DSN:             getEnv("POSTGRES_DSN", ""),
-				MaxOpenConns:    getInt("POSTGRES_MAX_OPEN_CONNS", 25),
-				MaxIdleConns:    getInt("POSTGRES_MAX_IDLE_CONNS", 5),
-				ConnMaxLifetime: getDuration("POSTGRES_CONN_MAX_LIFETIME", 5*time.Minute),
-			},
-			Redis: RedisConfig{
-				Addr:     getEnv("REDIS_ADDR", ""),
-				Password: getEnv("REDIS_PASSWORD", ""),
-				DB:       getInt("REDIS_DB", 0),
-				PoolSize: getInt("REDIS_POOL_SIZE", 10),
+			SQLite: SQLiteConfig{
+				Path:         getEnv("SQLITE_PATH", "/data/portfolio.db"),
+				BusyTimeout:  getDuration("SQLITE_BUSY_TIMEOUT", 5*time.Second),
+				MaxOpenConns: getInt("SQLITE_MAX_OPEN_CONNS", 2),
 			},
 		},
 		AI: AIConfig{
-			Provider:   getEnv("AI_PROVIDER", "openai"),
-			APIKey:     getEnv("AI_API_KEY", ""),
-			BaseURL:    getEnv("AI_BASE_URL", "https://api.openai.com/v1"),
-			Timeout:    getDuration("AI_TIMEOUT", 30*time.Second),
-			MaxRetries: getInt("AI_MAX_RETRIES", 3),
-			RateLimit:  getFloat64("AI_RATE_LIMIT", 10),
-		},
-		ExternalAPIs: ExternalAPIsConfig{
-			Timeout:    getDuration("EXTERNAL_API_TIMEOUT", 10*time.Second),
-			MaxRetries: getInt("EXTERNAL_API_MAX_RETRIES", 3),
+			APIKey:    getEnv("AI_API_KEY", ""),
+			BaseURL:   getEnv("AI_BASE_URL", "https://api.openai.com/v1"),
+			RateLimit: getFloat64("AI_RATE_LIMIT", 2),
 		},
 		Auth: AuthConfig{
-			APIKeys:   getStringSlice("AUTH_API_KEYS"),
-			JWTSecret: getEnv("JWT_SECRET", ""),
+			APIKeys: getStringSlice("AUTH_API_KEYS"),
 		},
 		RateLimit: RateLimitConfig{
-			RequestsPerSecond: getFloat64("RATE_LIMIT_RPS", 100),
-			BurstSize:         getInt("RATE_LIMIT_BURST", 200),
+			RequestsPerSecond: getFloat64("RATE_LIMIT_RPS", 20),
+			BurstSize:         getInt("RATE_LIMIT_BURST", 40),
+			MaxVisitors:       getInt("RATE_LIMIT_MAX_VISITORS", 2048),
 		},
 		Observability: ObservabilityConfig{
-			LogLevel:       getEnv("LOG_LEVEL", "info"),
-			MetricsEnabled: getBool("METRICS_ENABLED", true),
-			TracingEnabled: getBool("TRACING_ENABLED", false),
+			LogLevel: getEnv("LOG_LEVEL", "info"),
 		},
-		Environment: getEnv("APP_ENV", "development"),
+		Environment: getEnv("APP_ENV", "production"),
 	}
-	return cfg
 }
 
-// IsProd returns true if environment is production.
 func (c *Config) IsProd() bool {
 	return c.Environment == "production" || c.Environment == "prod"
 }
 
 func getEnv(key, def string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
+	if value := os.Getenv(key); value != "" {
+		return value
 	}
 	return def
 }
 
 func getDuration(key string, def time.Duration) time.Duration {
-	v := os.Getenv(key)
-	if v == "" {
+	value := os.Getenv(key)
+	if value == "" {
 		return def
 	}
-	d, err := time.ParseDuration(v)
+	duration, err := time.ParseDuration(value)
 	if err != nil {
 		return def
 	}
-	return d
+	return duration
 }
 
 func getInt(key string, def int) int {
-	v := os.Getenv(key)
-	if v == "" {
+	value := os.Getenv(key)
+	if value == "" {
 		return def
 	}
-	n, err := strconv.Atoi(v)
+	number, err := strconv.Atoi(value)
 	if err != nil {
 		return def
 	}
-	return n
+	return number
 }
 
 func getInt64(key string, def int64) int64 {
-	v := os.Getenv(key)
-	if v == "" {
+	value := os.Getenv(key)
+	if value == "" {
 		return def
 	}
-	n, err := strconv.ParseInt(v, 10, 64)
+	number, err := strconv.ParseInt(value, 10, 64)
 	if err != nil {
 		return def
 	}
-	return n
+	return number
 }
 
 func getFloat64(key string, def float64) float64 {
-	v := os.Getenv(key)
-	if v == "" {
+	value := os.Getenv(key)
+	if value == "" {
 		return def
 	}
-	f, err := strconv.ParseFloat(v, 64)
+	number, err := strconv.ParseFloat(value, 64)
 	if err != nil {
 		return def
 	}
-	return f
-}
-
-func getBool(key string, def bool) bool {
-	v := os.Getenv(key)
-	if v == "" {
-		return def
-	}
-	b, err := strconv.ParseBool(v)
-	if err != nil {
-		return def
-	}
-	return b
+	return number
 }
 
 func getStringSlice(key string) []string {
-	v := os.Getenv(key)
-	if v == "" {
+	value := os.Getenv(key)
+	if value == "" {
 		return nil
 	}
-	var result []string
-	for _, part := range strings.Split(v, ",") {
-		if part != "" {
-			result = append(result, part)
+	result := make([]string, 0)
+	for _, part := range strings.Split(value, ",") {
+		if trimmed := strings.TrimSpace(part); trimmed != "" {
+			result = append(result, trimmed)
 		}
 	}
 	return result

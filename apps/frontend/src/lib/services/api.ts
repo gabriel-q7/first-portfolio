@@ -1,4 +1,4 @@
-const API_BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8080';
+const API_BASE_URL = '/api/v1';
 
 interface RequestOptions {
   method?: string;
@@ -34,7 +34,11 @@ export const api = {
 };
 
 export async function fetchHealthcheck(): Promise<{ status: string }> {
-  return api.get<{ status: string }>('/health');
+  const response = await fetch('/api/health');
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+  }
+  return response.json() as Promise<{ status: string }>;
 }
 
 export interface BackendProject {

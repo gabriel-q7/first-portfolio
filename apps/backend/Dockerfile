@@ -1,21 +1,32 @@
-# Stage 1: builder
 FROM golang:1.24-alpine AS builder
 
-WORKDIR /build
+ARG VERSION=dev
+ARG TARGETOS=linux
+ARG TARGETARCH
 
+WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
-
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags "-s -w" -o /app/server ./cmd/api/...
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+    go build -trimpath -buildvcs=false \
+    -ldflags="-s -w -buildid= -X main.version=${VERSION}" \
+    -o /out/server ./cmd/api
 
-# Stage 2: runtime
-FROM gcr.io/distroless/static-debian12
+# Docker initializes a new named volume from this owned directory, allowing the
+# non-root runtime user to create SQLite, WAL, and shared-memory files.
+RUN mkdir -p /runtime-data && \
+    touch /runtime-data/.volume-init && \
+    chown -R 65532:65532 /runtime-data
 
-COPY --from=builder /app/server /app/server
+FROM gcr.io/distroless/static-debian12:nonroot
 
+WORKDIR /app
+COPY --from=builder --chown=65532:65532 /out/server /app/server
+COPY --from=builder --chown=65532:65532 /runtime-data /data
+
+USER 65532:65532
 EXPOSE 8080
-
-USER nonroot:nonroot
-
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD ["/app/server", "healthcheck"]
 ENTRYPOINT ["/app/server"]

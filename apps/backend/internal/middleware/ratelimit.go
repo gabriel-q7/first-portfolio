@@ -2,13 +2,14 @@ package middleware
 
 import (
 	"encoding/json"
+	"fmt"
+	"net"
 	"net/http"
 	"strconv"
 	"sync"
 	"time"
 
 	"github.com/gabriel-q7/portfolio/backend/pkg/logger"
-	"github.com/gabriel-q7/portfolio/backend/pkg/metrics"
 	"golang.org/x/time/rate"
 )
 
@@ -17,50 +18,61 @@ type visitorState struct {
 	lastSeen time.Time
 }
 
-// RateLimiter enforces per-IP request rate limits.
 type RateLimiter struct {
-	visitors map[string]*visitorState
-	mu       sync.RWMutex
-	rate     rate.Limit
-	burst    int
-	log      logger.Logger
-	metrics  *metrics.Metrics
+	visitors     map[string]*visitorState
+	mu           sync.Mutex
+	rate         rate.Limit
+	burst        int
+	maxVisitors  int
+	requests     uint64
+	log          logger.Logger
+	trustedProxy *net.IPNet
 }
 
-// NewRateLimiter creates a RateLimiter and starts the cleanup goroutine.
-func NewRateLimiter(requestsPerSec float64, burst int, log logger.Logger, m *metrics.Metrics) *RateLimiter {
-	rl := &RateLimiter{
-		visitors: make(map[string]*visitorState),
-		rate:     rate.Limit(requestsPerSec),
-		burst:    burst,
-		log:      log,
-		metrics:  m,
+// NewRateLimiter creates a bounded per-client limiter. Cleanup is performed
+// opportunistically so the service does not need a maintenance goroutine.
+func NewRateLimiter(
+	requestsPerSecond float64,
+	burst int,
+	maxVisitors int,
+	trustedProxyCIDR string,
+	log logger.Logger,
+) (*RateLimiter, error) {
+	if requestsPerSecond <= 0 || burst < 1 || maxVisitors < 1 {
+		return nil, fmt.Errorf("rate limit values must be positive")
 	}
-	go rl.cleanupVisitors()
-	return rl
+	var trustedProxy *net.IPNet
+	if trustedProxyCIDR != "" {
+		_, network, err := net.ParseCIDR(trustedProxyCIDR)
+		if err != nil {
+			return nil, fmt.Errorf("parse TRUSTED_PROXY_CIDR: %w", err)
+		}
+		trustedProxy = network
+	}
+	return &RateLimiter{
+		visitors:     make(map[string]*visitorState),
+		rate:         rate.Limit(requestsPerSecond),
+		burst:        burst,
+		maxVisitors:  maxVisitors,
+		log:          log,
+		trustedProxy: trustedProxy,
+	}, nil
 }
 
-// Middleware returns an http.Handler middleware that rate limits by IP.
+func (rl *RateLimiter) TrustedProxy() *net.IPNet {
+	return rl.trustedProxy
+}
+
 func (rl *RateLimiter) Middleware() func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			ip := r.RemoteAddr
-			limiter := rl.getVisitor(ip)
-			if !limiter.Allow() {
+			ip := ClientIP(r, rl.trustedProxy)
+			if !rl.getVisitor(ip).Allow() {
 				rl.log.Warn("rate limit exceeded", "ip", ip, "path", r.URL.Path)
-				// Retry-After: number of seconds until the next token is available.
-				// For low rates (< 1 req/s) this gives the correct wait in seconds;
-				// for high rates we floor at 1 so clients always see a meaningful value.
-				retrySeconds := 1
-				if rl.rate > 0 && rl.rate < 1 {
-					retrySeconds = int(1/float64(rl.rate)) + 1
-				}
-				w.Header().Set("Retry-After", strconv.Itoa(retrySeconds))
+				w.Header().Set("Retry-After", "1")
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusTooManyRequests)
-				_ = json.NewEncoder(w).Encode(map[string]string{
-					"error": "rate limit exceeded",
-				})
+				_ = json.NewEncoder(w).Encode(map[string]string{"error": "rate limit exceeded"})
 				return
 			}
 			next.ServeHTTP(w, r)
@@ -71,35 +83,72 @@ func (rl *RateLimiter) Middleware() func(http.Handler) http.Handler {
 func (rl *RateLimiter) getVisitor(ip string) *rate.Limiter {
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
-	v, exists := rl.visitors[ip]
-	if !exists {
-		v = &visitorState{limiter: rate.NewLimiter(rl.rate, rl.burst)}
-		rl.visitors[ip] = v
+
+	rl.requests++
+	if rl.requests%256 == 0 {
+		rl.removeStaleLocked(time.Now().Add(-3 * time.Minute))
 	}
-	v.lastSeen = time.Now()
-	return v.limiter
+	if visitor, exists := rl.visitors[ip]; exists {
+		visitor.lastSeen = time.Now()
+		return visitor.limiter
+	}
+	if len(rl.visitors) >= rl.maxVisitors {
+		rl.removeOldestLocked()
+	}
+	visitor := &visitorState{
+		limiter:  rate.NewLimiter(rl.rate, rl.burst),
+		lastSeen: time.Now(),
+	}
+	rl.visitors[ip] = visitor
+	return visitor.limiter
 }
 
-func (rl *RateLimiter) cleanupVisitors() {
-	ticker := time.NewTicker(time.Minute)
-	defer ticker.Stop()
-	for range ticker.C {
-		rl.mu.Lock()
-		for ip, v := range rl.visitors {
-			if time.Since(v.lastSeen) > 3*time.Minute {
-				delete(rl.visitors, ip)
-			}
+func (rl *RateLimiter) removeStaleLocked(cutoff time.Time) {
+	for ip, visitor := range rl.visitors {
+		if visitor.lastSeen.Before(cutoff) {
+			delete(rl.visitors, ip)
 		}
-		rl.mu.Unlock()
 	}
 }
 
-// APIKeyRateLimit returns a middleware that rate limits per API key.
+func (rl *RateLimiter) removeOldestLocked() {
+	var oldestIP string
+	var oldestTime time.Time
+	for ip, visitor := range rl.visitors {
+		if oldestIP == "" || visitor.lastSeen.Before(oldestTime) {
+			oldestIP = ip
+			oldestTime = visitor.lastSeen
+		}
+	}
+	delete(rl.visitors, oldestIP)
+}
+
+func ClientIP(r *http.Request, trustedProxy *net.IPNet) string {
+	remoteIP := parseRemoteIP(r.RemoteAddr)
+	if trustedProxy != nil && remoteIP != nil && trustedProxy.Contains(remoteIP) {
+		if realIP := net.ParseIP(r.Header.Get("X-Real-IP")); realIP != nil {
+			return realIP.String()
+		}
+	}
+	if remoteIP != nil {
+		return remoteIP.String()
+	}
+	return r.RemoteAddr
+}
+
+func parseRemoteIP(remoteAddr string) net.IP {
+	host, _, err := net.SplitHostPort(remoteAddr)
+	if err == nil {
+		return net.ParseIP(host)
+	}
+	return net.ParseIP(remoteAddr)
+}
+
 func APIKeyRateLimit(keys map[string]float64) func(http.Handler) http.Handler {
 	limiters := make(map[string]*rate.Limiter, len(keys))
 	var mu sync.RWMutex
-	for k, rps := range keys {
-		limiters[k] = rate.NewLimiter(rate.Limit(rps), int(rps)+1)
+	for key, requestsPerSecond := range keys {
+		limiters[key] = rate.NewLimiter(rate.Limit(requestsPerSecond), int(requestsPerSecond)+1)
 	}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -108,8 +157,7 @@ func APIKeyRateLimit(keys map[string]float64) func(http.Handler) http.Handler {
 			limiter, ok := limiters[key]
 			mu.RUnlock()
 			if ok && !limiter.Allow() {
-				retryAfter := strconv.Itoa(1)
-				w.Header().Set("Retry-After", retryAfter)
+				w.Header().Set("Retry-After", strconv.Itoa(1))
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusTooManyRequests)
 				_ = json.NewEncoder(w).Encode(map[string]string{"error": "api key rate limit exceeded"})

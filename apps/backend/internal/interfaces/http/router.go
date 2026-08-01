@@ -1,6 +1,7 @@
 package http
 
 import (
+	"net"
 	"net/http"
 	"time"
 
@@ -8,7 +9,6 @@ import (
 	"github.com/gabriel-q7/portfolio/backend/internal/interfaces/terminal"
 	"github.com/gabriel-q7/portfolio/backend/internal/middleware"
 	"github.com/gabriel-q7/portfolio/backend/pkg/logger"
-	"github.com/gabriel-q7/portfolio/backend/pkg/metrics"
 )
 
 // Dependencies holds all handler and middleware dependencies for the router.
@@ -18,9 +18,9 @@ type Dependencies struct {
 	TerminalHandler *terminal.Handler
 	RateLimiter     *middleware.RateLimiter
 	AuthMiddleware  *middleware.ExportedAuthMiddleware
-	Metrics         *metrics.Metrics
 	Logger          logger.Logger
-	IsProd          bool
+	TrustedProxy    *net.IPNet
+	RequestMaxBytes int64
 }
 
 // Router assembles the HTTP routing table and middleware chain.
@@ -41,9 +41,7 @@ func (ro *Router) SetupRoutes() http.Handler {
 	mux.HandleFunc("GET /health", ro.deps.HealthHandler.Health)
 	mux.HandleFunc("GET /health/live", ro.deps.HealthHandler.Live)
 	mux.HandleFunc("GET /health/ready", ro.deps.HealthHandler.Ready)
-
-	// Metrics (no auth).
-	mux.Handle("GET /metrics", ro.deps.Metrics.Handler())
+	mux.HandleFunc("GET /api/health", ro.deps.HealthHandler.Health)
 
 	// Public read routes.
 	mux.HandleFunc("GET /api/v1/projects", ro.deps.ProjectHandler.List)
@@ -54,7 +52,7 @@ func (ro *Router) SetupRoutes() http.Handler {
 		ro.deps.AuthMiddleware.APIKeyAuth(http.HandlerFunc(ro.deps.ProjectHandler.Create)),
 	)
 
-	// WebSocket terminal endpoint (bypasses body-size and timeout middleware via hijacking).
+	// WebSocket terminal endpoint.
 	if ro.deps.TerminalHandler != nil {
 		mux.Handle("GET /ws", ro.deps.TerminalHandler)
 	}
@@ -62,16 +60,8 @@ func (ro *Router) SetupRoutes() http.Handler {
 	// Build middleware chain.
 	var chain http.Handler = mux
 	chain = ro.deps.RateLimiter.Middleware()(chain)
-
-	if ro.deps.IsProd {
-		chain = middleware.SecureHeadersProd(chain)
-	} else {
-		chain = middleware.SecureHeaders(chain)
-	}
-
-	chain = middleware.CORS(middleware.DefaultCORSConfig())(chain)
-	chain = middleware.RequestLogger(ro.deps.Logger, ro.deps.Metrics)(chain)
-	chain = middleware.MaxBodySize(1 << 20)(chain) // 1 MB
+	chain = middleware.RequestLogger(ro.deps.Logger, ro.deps.TrustedProxy)(chain)
+	chain = middleware.MaxBodySize(ro.deps.RequestMaxBytes)(chain)
 	chain = middleware.Timeout(30 * time.Second)(chain)
 	chain = middleware.RequestID(chain)
 

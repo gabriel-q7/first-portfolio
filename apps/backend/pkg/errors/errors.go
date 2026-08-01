@@ -3,14 +3,14 @@ package errors
 import "fmt"
 
 const (
-	ErrNotFound    = 404
-	ErrBadRequest  = 400
+	ErrNotFound     = 404
+	ErrBadRequest   = 400
 	ErrUnauthorized = 401
-	ErrForbidden   = 403
-	ErrInternal    = 500
-	ErrRateLimit   = 429
-	ErrTimeout     = 408
-	ErrConflict    = 409
+	ErrForbidden    = 403
+	ErrInternal     = 500
+	ErrRateLimit    = 429
+	ErrTimeout      = 408
+	ErrConflict     = 409
 )
 
 // AppError is the application-level error type.

@@ -14,7 +14,7 @@ import (
 
 // mockProjectRepo is an in-memory mock for ProjectRepository.
 type mockProjectRepo struct {
-	projects map[uuid.UUID]*entity.Project
+	projects      map[uuid.UUID]*entity.Project
 	findAllCalled bool
 }
 
@@ -66,7 +66,7 @@ func (m *mockProjectRepo) Delete(_ context.Context, id uuid.UUID) error {
 
 // mockCacheRepo is an in-memory mock for CacheRepository.
 type mockCacheRepo struct {
-	data map[string][]byte
+	data      map[string][]byte
 	getCalled int
 	setCalled int
 }
@@ -105,7 +105,7 @@ func (m *mockCacheRepo) FlushPattern(_ context.Context, _ string) error {
 }
 
 func newTestService(repo *mockProjectRepo, cache *mockCacheRepo) *ProjectService {
-	return New(repo, cache, logger.New("debug"), nil)
+	return New(repo, cache, logger.New("debug"))
 }
 
 func TestGetAll_CacheHit(t *testing.T) {

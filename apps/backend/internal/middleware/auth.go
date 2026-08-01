@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"net/http"
 
@@ -9,26 +10,24 @@ import (
 )
 
 type authMiddleware struct {
-	apiKeys   map[string]bool
-	jwtSecret []byte
-	log       logger.Logger
+	apiKeys [][]byte
+	log     logger.Logger
 }
 
 // ExportedAuthMiddleware is the exported alias used by the router.
 type ExportedAuthMiddleware = authMiddleware
 
 // NewAuthMiddleware creates an auth middleware instance.
-func NewAuthMiddleware(apiKeys []string, jwtSecret string, log logger.Logger) *authMiddleware {
-	keys := make(map[string]bool, len(apiKeys))
+func NewAuthMiddleware(apiKeys []string, log logger.Logger) *authMiddleware {
+	keys := make([][]byte, 0, len(apiKeys))
 	for _, k := range apiKeys {
 		if k != "" {
-			keys[k] = true
+			keys = append(keys, []byte(k))
 		}
 	}
 	return &authMiddleware{
-		apiKeys:   keys,
-		jwtSecret: []byte(jwtSecret),
-		log:       log,
+		apiKeys: keys,
+		log:     log,
 	}
 }
 
@@ -38,7 +37,7 @@ type contextKeyAPIKey struct{}
 func (a *authMiddleware) APIKeyAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		key := r.Header.Get("X-API-Key")
-		if key == "" || !a.apiKeys[key] {
+		if key == "" || !a.validAPIKey(key) {
 			a.log.Warn("unauthorized request", "path", r.URL.Path, "remote_addr", r.RemoteAddr)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusUnauthorized)
@@ -55,7 +54,7 @@ func (a *authMiddleware) OptionalAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		key := r.Header.Get("X-API-Key")
 		if key != "" {
-			if !a.apiKeys[key] {
+			if !a.validAPIKey(key) {
 				a.log.Warn("invalid optional API key", "path", r.URL.Path)
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusUnauthorized)
@@ -67,6 +66,17 @@ func (a *authMiddleware) OptionalAuth(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func (a *authMiddleware) validAPIKey(candidate string) bool {
+	candidateBytes := []byte(candidate)
+	valid := 0
+	for _, expected := range a.apiKeys {
+		if len(candidateBytes) == len(expected) {
+			valid |= subtle.ConstantTimeCompare(candidateBytes, expected)
+		}
+	}
+	return valid == 1
 }
 
 // GetAPIKey retrieves the API key stored in the context.

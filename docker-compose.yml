@@ -1,64 +1,109 @@
-version: "3.9"
+name: portfolio
 
 services:
-  frontend:
-    build:
-      context: ./apps/frontend
-    ports:
-      - "3000:3000"
-    environment:
-      - VITE_API_URL=http://localhost:8080
-    depends_on:
-      - backend
-
   backend:
     build:
       context: ./apps/backend
-    ports:
-      - "8080:8080"
+      args:
+        VERSION: ${APP_VERSION:-dev}
+    restart: unless-stopped
     environment:
-      - APP_ENV=production
-      - SERVER_PORT=8080
-      - POSTGRES_DSN=postgres://portfolio:portfolio@postgres:5432/portfolio?sslmode=disable
-      - REDIS_ADDR=redis:6379
-      - LOG_LEVEL=info
-      - METRICS_ENABLED=true
-      - RATE_LIMIT_RPS=100
-      - RATE_LIMIT_BURST=200
+      APP_ENV: production
+      SERVER_PORT: "8080"
+      SQLITE_PATH: /data/portfolio.db
+      SQLITE_BUSY_TIMEOUT: 5s
+      SQLITE_MAX_OPEN_CONNS: "2"
+      TRUSTED_PROXY_CIDR: 172.28.0.10/32
+      AUTH_API_KEYS: ${AUTH_API_KEYS:-}
+      AI_API_KEY: ${AI_API_KEY:-}
+      AI_BASE_URL: ${AI_BASE_URL:-https://api.openai.com/v1}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      GOMAXPROCS: "1"
+      GOMEMLIMIT: 192MiB
+      GOGC: "100"
+    volumes:
+      - sqlite_data:/data
+    networks:
+      app_internal:
+        ipv4_address: 172.28.0.20
+    expose:
+      - "8080"
+    healthcheck:
+      test: ["CMD", "/app/server", "healthcheck"]
+      interval: 30s
+      timeout: 3s
+      start_period: 5s
+      retries: 3
+    read_only: true
+    tmpfs:
+      - /tmp:size=8m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 64
+    mem_limit: 256m
+    mem_reservation: 64m
+    cpus: 0.75
+    stop_grace_period: 20s
+    logging:
+      driver: local
+      options:
+        max-size: 10m
+        max-file: "3"
+
+  nginx:
+    build:
+      context: .
+      dockerfile: apps/frontend/Dockerfile
+    restart: unless-stopped
     depends_on:
-      postgres:
+      backend:
         condition: service_healthy
-      redis:
-        condition: service_healthy
-
-  postgres:
-    image: postgres:16-alpine
     environment:
-      POSTGRES_USER: portfolio
-      POSTGRES_PASSWORD: portfolio
-      POSTGRES_DB: portfolio
+      TLS_CERT_FILE: /etc/nginx/tls/fullchain.pem
+      TLS_KEY_FILE: /etc/nginx/tls/privkey.pem
     ports:
-      - "5432:5432"
+      - "${HTTP_PORT:-80}:8080"
+      - "${HTTPS_PORT:-443}:8443"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - type: bind
+        source: ./deploy/tls
+        target: /etc/nginx/tls
+        read_only: true
+    networks:
+      app_internal:
+        ipv4_address: 172.28.0.10
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U portfolio"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/nginx-health"]
+      interval: 30s
+      timeout: 3s
+      start_period: 5s
+      retries: 3
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 32
+    mem_limit: 64m
+    mem_reservation: 16m
+    cpus: 0.25
+    stop_grace_period: 10s
+    logging:
+      driver: local
+      options:
+        max-size: 10m
+        max-file: "3"
 
-  redis:
-    image: redis:7-alpine
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
+networks:
+  app_internal:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/24
 
 volumes:
-  postgres_data:
-  redis_data:
+  sqlite_data:

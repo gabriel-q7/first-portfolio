@@ -10,7 +10,6 @@ import (
 	"github.com/gabriel-q7/portfolio/backend/internal/domain/repository"
 	apperrors "github.com/gabriel-q7/portfolio/backend/pkg/errors"
 	"github.com/gabriel-q7/portfolio/backend/pkg/logger"
-	"github.com/gabriel-q7/portfolio/backend/pkg/metrics"
 	"github.com/google/uuid"
 )
 
@@ -32,10 +31,9 @@ type ProjectUseCase interface {
 
 // ProjectService implements ProjectUseCase.
 type ProjectService struct {
-	repo    repository.ProjectRepository
-	cache   repository.CacheRepository
-	logger  logger.Logger
-	metrics *metrics.Metrics
+	repo   repository.ProjectRepository
+	cache  repository.CacheRepository
+	logger logger.Logger
 }
 
 // New creates a new ProjectService.
@@ -43,9 +41,8 @@ func New(
 	repo repository.ProjectRepository,
 	cache repository.CacheRepository,
 	log logger.Logger,
-	m *metrics.Metrics,
 ) *ProjectService {
-	return &ProjectService{repo: repo, cache: cache, logger: log, metrics: m}
+	return &ProjectService{repo: repo, cache: cache, logger: log}
 }
 
 // GetAll returns all projects, using cache when available.
@@ -146,6 +143,7 @@ func (s *ProjectService) Create(ctx context.Context, name, desc string, tech []s
 	}
 
 	_ = s.cache.Delete(ctx, cacheKeyAllProjects)
+	_ = s.cache.Delete(ctx, cacheKeyFeaturedProjects)
 	return p, nil
 }
 
@@ -172,6 +170,7 @@ func (s *ProjectService) Update(ctx context.Context, id uuid.UUID, name, desc st
 	}
 
 	_ = s.cache.Delete(ctx, cacheKeyAllProjects)
+	_ = s.cache.Delete(ctx, cacheKeyFeaturedProjects)
 	_ = s.cache.Delete(ctx, fmt.Sprintf("project:%s", id))
 	return p, nil
 }
@@ -189,6 +188,7 @@ func (s *ProjectService) Delete(ctx context.Context, id uuid.UUID) error {
 	}
 
 	_ = s.cache.Delete(ctx, cacheKeyAllProjects)
+	_ = s.cache.Delete(ctx, cacheKeyFeaturedProjects)
 	_ = s.cache.Delete(ctx, fmt.Sprintf("project:%s", id))
 	return nil
 }

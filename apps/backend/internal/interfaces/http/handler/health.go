@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"time"
@@ -13,11 +14,20 @@ type HealthHandler struct {
 	version   string
 	startTime time.Time
 	logger    logger.Logger
+	database  databasePinger
+}
+
+type databasePinger interface {
+	PingContext(context.Context) error
 }
 
 // NewHealthHandler creates a new HealthHandler.
-func NewHealthHandler(version string, log logger.Logger) *HealthHandler {
-	return &HealthHandler{version: version, startTime: time.Now().UTC(), logger: log}
+func NewHealthHandler(version string, log logger.Logger, database ...databasePinger) *HealthHandler {
+	var db databasePinger
+	if len(database) > 0 {
+		db = database[0]
+	}
+	return &HealthHandler{version: version, startTime: time.Now().UTC(), logger: log, database: db}
 }
 
 // Health returns the full health status.
@@ -38,6 +48,15 @@ func (h *HealthHandler) Live(w http.ResponseWriter, r *http.Request) {
 
 // Ready is the readiness probe.
 func (h *HealthHandler) Ready(w http.ResponseWriter, r *http.Request) {
+	if h.database != nil {
+		ctx, cancel := context.WithTimeout(r.Context(), time.Second)
+		defer cancel()
+		if err := h.database.PingContext(ctx); err != nil {
+			h.logger.Error("readiness check failed", "error", err)
+			respondJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "not_ready"})
+			return
+		}
+	}
 	respondJSON(w, http.StatusOK, map[string]string{"status": "ready"})
 }
 

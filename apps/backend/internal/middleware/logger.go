@@ -4,11 +4,9 @@ import (
 	"bufio"
 	"net"
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/gabriel-q7/portfolio/backend/pkg/logger"
-	"github.com/gabriel-q7/portfolio/backend/pkg/metrics"
 )
 
 type responseWriter struct {
@@ -31,11 +29,12 @@ func (rw *responseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	if !ok {
 		return nil, nil, http.ErrNotSupported
 	}
+	rw.statusCode = http.StatusSwitchingProtocols
 	return hijacker.Hijack()
 }
 
-// RequestLogger logs each request and records metrics.
-func RequestLogger(log logger.Logger, m *metrics.Metrics) func(http.Handler) http.Handler {
+// RequestLogger logs each request as structured JSON.
+func RequestLogger(log logger.Logger, trustedProxy *net.IPNet) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			start := time.Now()
@@ -43,20 +42,14 @@ func RequestLogger(log logger.Logger, m *metrics.Metrics) func(http.Handler) htt
 			next.ServeHTTP(rw, r)
 
 			duration := time.Since(start)
-			statusStr := strconv.Itoa(rw.statusCode)
-
 			log.Info("http request",
 				"method", r.Method,
 				"path", r.URL.Path,
-				"remote_addr", r.RemoteAddr,
+				"remote_addr", ClientIP(r, trustedProxy),
 				"request_id", GetRequestID(r.Context()),
 				"status", rw.statusCode,
 				"duration_ms", duration.Milliseconds(),
 			)
-
-			if m != nil {
-				m.RecordHTTP(r.Method, r.URL.Path, statusStr, duration)
-			}
 		})
 	}
 }

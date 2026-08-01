@@ -1,0 +1,11 @@
+.git
+.github
+.env
+**/.env
+**/node_modules
+**/build
+**/bin
+**/*.db
+**/*.db-shm
+**/*.db-wal
+deploy/tls/*.pem

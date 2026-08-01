@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/gabriel-q7/portfolio/backend/internal/domain/entity"
@@ -15,19 +17,26 @@ import (
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
-	// Allow all origins in development; callers can restrict via CheckOrigin.
-	CheckOrigin: func(r *http.Request) bool { return true },
+	CheckOrigin: func(r *http.Request) bool {
+		origin, err := url.Parse(r.Header.Get("Origin"))
+		return err == nil && origin.Host != "" && strings.EqualFold(origin.Host, r.Host)
+	},
 }
 
 // Handler manages WebSocket terminal sessions.
 type Handler struct {
-	router *CommandRouter
-	logger logger.Logger
+	router        *CommandRouter
+	logger        logger.Logger
+	parentContext context.Context
 }
 
 // NewHandler creates a new WebSocket terminal Handler.
-func NewHandler(router *CommandRouter, log logger.Logger) *Handler {
-	return &Handler{router: router, logger: log}
+func NewHandler(router *CommandRouter, log logger.Logger, parent ...context.Context) *Handler {
+	parentContext := context.Background()
+	if len(parent) > 0 && parent[0] != nil {
+		parentContext = parent[0]
+	}
+	return &Handler{router: router, logger: log, parentContext: parentContext}
 }
 
 // ServeHTTP upgrades the HTTP connection to WebSocket and handles the terminal session.
@@ -38,8 +47,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer conn.Close()
+	conn.SetReadLimit(4 << 10)
 
-	session := entity.NewTerminalSession(context.Background())
+	session := entity.NewTerminalSession(h.parentContext)
 	defer session.Close()
 
 	h.logger.Info("terminal session started", "session_id", session.ID)
@@ -88,6 +98,17 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	for {
 		select {
+		case <-session.Context().Done():
+			if cmdCancel != nil {
+				cmdCancel()
+			}
+			_ = conn.WriteControl(
+				websocket.CloseMessage,
+				websocket.FormatCloseMessage(websocket.CloseGoingAway, "server shutting down"),
+				time.Now().Add(time.Second),
+			)
+			return
+
 		case <-pingTicker.C:
 			conn.SetWriteDeadline(time.Now().Add(10 * time.Second)) //nolint:errcheck
 			if err := conn.WriteMessage(websocket.PingMessage, nil); err != nil {

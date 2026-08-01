@@ -6,9 +6,6 @@
   import { WebSocketService } from '$lib/services/websocket';
   import type { ServerMessage } from '$lib/types/protocol';
 
-  /** WebSocket URL — falls back to ws://localhost:8080/ws */
-  const wsUrl: string = import.meta.env.VITE_WS_URL || 'ws://localhost:8080/ws';
-
   let container: HTMLDivElement;
   let term: InstanceType<typeof Terminal>;
   let fitAddon: InstanceType<typeof FitAddon>;
@@ -215,6 +212,8 @@
     }
 
     // Connect to WebSocket.
+    const websocketProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${websocketProtocol}//${window.location.host}/api/ws`;
     wsService = new WebSocketService({
       url: wsUrl,
       onMessage: handleServerMessage,
