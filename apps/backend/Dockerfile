@@ -1,4 +1,4 @@
-FROM golang:1.24-alpine AS builder
+FROM golang:1.26-alpine AS builder
 
 ARG VERSION=dev
 ARG TARGETOS=linux
@@ -8,8 +8,10 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
+RUN go test ./...
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
     go build -trimpath -buildvcs=false \
+    -tags="netgo,osusergo" \
     -ldflags="-s -w -buildid= -X main.version=${VERSION}" \
     -o /out/server ./cmd/api
 

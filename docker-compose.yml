@@ -2,21 +2,17 @@ name: portfolio
 
 services:
   backend:
-    build:
-      context: ./apps/backend
-      args:
-        VERSION: ${APP_VERSION:-dev}
+    image: ghcr.io/${GHCR_OWNER:?GHCR_OWNER is required}/backend:${APP_VERSION:?APP_VERSION is required}
+    pull_policy: always
     restart: unless-stopped
     environment:
       APP_ENV: production
       SERVER_PORT: "8080"
       SQLITE_PATH: /data/portfolio.db
-      SQLITE_BUSY_TIMEOUT: 5s
-      SQLITE_MAX_OPEN_CONNS: "2"
+      SQLITE_BUSY_TIMEOUT: ${SQLITE_BUSY_TIMEOUT:-5s}
+      SQLITE_MAX_OPEN_CONNS: ${SQLITE_MAX_OPEN_CONNS:-2}
       TRUSTED_PROXY_CIDR: 172.28.0.10/32
       AUTH_API_KEYS: ${AUTH_API_KEYS:-}
-      AI_API_KEY: ${AI_API_KEY:-}
-      AI_BASE_URL: ${AI_BASE_URL:-https://api.openai.com/v1}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       GOMAXPROCS: "1"
       GOMEMLIMIT: 192MiB
@@ -53,9 +49,8 @@ services:
         max-file: "3"
 
   nginx:
-    build:
-      context: .
-      dockerfile: apps/frontend/Dockerfile
+    image: ghcr.io/${GHCR_OWNER:?GHCR_OWNER is required}/nginx:${APP_VERSION:?APP_VERSION is required}
+    pull_policy: always
     restart: unless-stopped
     depends_on:
       backend:
@@ -68,10 +63,11 @@ services:
       - "${HTTPS_PORT:-443}:8443"
     volumes:
       - type: bind
-        source: ./deploy/tls
+        source: ${TLS_DIR:-./tls}
         target: /etc/nginx/tls
         read_only: true
     networks:
+      edge: {}
       app_internal:
         ipv4_address: 172.28.0.10
     healthcheck:
@@ -99,8 +95,11 @@ services:
         max-file: "3"
 
 networks:
+  edge:
+    driver: bridge
   app_internal:
     driver: bridge
+    internal: true
     ipam:
       config:
         - subnet: 172.28.0.0/24

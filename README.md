@@ -1,33 +1,37 @@
 # First Portfolio
 
-A small production-oriented portfolio for a single VPS. The runtime has exactly
-two containers:
+A production-oriented Svelte and Go portfolio for a small Ubuntu VPS. The
+runtime contains only two containers:
 
-- Nginx serves the compiled Svelte application and is the only public entry point.
-- Go serves REST and WebSocket endpoints and persists projects in SQLite.
+- Nginx serves the statically compiled Svelte application and terminates TLS.
+- Go serves the REST/WebSocket API and stores data in a persistent SQLite volume.
 
-There is no Node production process and no external database or cache service.
+Node.js is build-only. The backend has no published port, and the production
+Compose file contains no `build:` directives.
 
-## Run
-
-```bash
-cp .env.example .env
-chmod 600 .env
-# Add a real TLS certificate under deploy/tls before production use.
-docker compose up -d --build
-```
-
-Open `https://localhost` for a local smoke test (the automatic fallback
-certificate is self-signed). Only host ports 80 and 443 are published.
-
-## Development checks
+## Local verification
 
 ```bash
 make backend-test
-cd apps/frontend && npm run check && npm run build
-docker compose config
+cd apps/frontend && npm ci && npm run check && npm run build
+cd ../..
+make build
 ```
 
-See [the production deployment guide](docs/production-deployment.md) for the
-architecture, configuration, backup/rollback procedure, memory budget, SQLite
-trade-offs, and production checklist.
+The production stack expects published GHCR images, a `.env`, and real TLS
+files. See [Production deployment](docs/production-deployment.md) for initial
+VPS provisioning, GitHub secrets, releases, backups, and rollback.
+
+## Production release
+
+Normal branch pushes do not deploy. Merge and verify `main`, then push a stable
+semantic version tag:
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+GitHub Actions builds `ghcr.io/<owner>/backend:v1.0.0` and
+`ghcr.io/<owner>/nginx:v1.0.0`, pushes only those exact tags, and deploys them.
+No `latest` image is produced.

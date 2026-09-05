@@ -1,0 +1,142 @@
+name: Release production
+
+on:
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  VPS_APP_DIR: /opt/myapp
+  VPS_SSH_PORT: ${{ vars.VPS_SSH_PORT || '22' }}
+
+jobs:
+  release:
+    name: Build, publish, and deploy
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out the tagged source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Validate and export release metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME}"
+          if [[ ! "$version" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "Invalid production tag: $version" >&2
+            exit 1
+          fi
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          echo "GHCR_OWNER=$owner" >> "$GITHUB_ENV"
+          echo "BACKEND_IMAGE=$REGISTRY/$owner/backend:$version" >> "$GITHUB_ENV"
+          echo "NGINX_IMAGE=$REGISTRY/$owner/nginx:$version" >> "$GITHUB_ENV"
+
+      - name: Log in to GHCR for publishing
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s' "${{ secrets.GITHUB_TOKEN }}" |
+            docker login "$REGISTRY" --username "${{ github.actor }}" --password-stdin
+
+      - name: Build backend image
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker build \
+            --file apps/backend/Dockerfile \
+            --build-arg VERSION="$VERSION" \
+            --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" \
+            --label "org.opencontainers.image.revision=$GITHUB_SHA" \
+            --label "org.opencontainers.image.version=$VERSION" \
+            --tag "$BACKEND_IMAGE" \
+            apps/backend
+
+      - name: Build Svelte and Nginx image
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker build \
+            --file apps/frontend/Dockerfile \
+            --build-arg VERSION="$VERSION" \
+            --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" \
+            --label "org.opencontainers.image.revision=$GITHUB_SHA" \
+            --label "org.opencontainers.image.version=$VERSION" \
+            --tag "$NGINX_IMAGE" \
+            .
+
+      - name: Push versioned images
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker push "$BACKEND_IMAGE"
+          docker push "$NGINX_IMAGE"
+
+      - name: Configure SSH
+        shell: bash
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          install -d -m 700 "$HOME/.ssh"
+          printf '%s\n' "$SSH_PRIVATE_KEY" > "$HOME/.ssh/deploy_key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/deploy_key" "$HOME/.ssh/known_hosts"
+
+      - name: Authenticate the VPS to GHCR
+        shell: bash
+        env:
+          GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USERNAME: ${{ secrets.VPS_USERNAME }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$GHCR_TOKEN" |
+            ssh -i "$HOME/.ssh/deploy_key" -p "$VPS_SSH_PORT" \
+              "$VPS_USERNAME@$VPS_HOST" \
+              "docker login ghcr.io --username '$GHCR_USERNAME' --password-stdin"
+
+      - name: Install tagged deployment files on the VPS
+        shell: bash
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USERNAME: ${{ secrets.VPS_USERNAME }}
+        run: |
+          set -euo pipefail
+          release_dir="/tmp/portfolio-$VERSION"
+          ssh -i "$HOME/.ssh/deploy_key" -p "$VPS_SSH_PORT" \
+            "$VPS_USERNAME@$VPS_HOST" "mkdir -p '$release_dir'"
+          scp -i "$HOME/.ssh/deploy_key" -P "$VPS_SSH_PORT" \
+            docker-compose.yml scripts/deploy.sh scripts/rollback.sh \
+            "$VPS_USERNAME@$VPS_HOST:$release_dir/"
+          ssh -i "$HOME/.ssh/deploy_key" -p "$VPS_SSH_PORT" \
+            "$VPS_USERNAME@$VPS_HOST" \
+            "install -m 0644 '$release_dir/docker-compose.yml' '$VPS_APP_DIR/docker-compose.yml' && \
+             install -m 0755 '$release_dir/deploy.sh' '$VPS_APP_DIR/scripts/deploy.sh' && \
+             install -m 0755 '$release_dir/rollback.sh' '$VPS_APP_DIR/scripts/rollback.sh' && \
+             rm -rf '$release_dir'"
+
+      - name: Pull and deploy the tagged version
+        shell: bash
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USERNAME: ${{ secrets.VPS_USERNAME }}
+        run: |
+          set -euo pipefail
+          ssh -i "$HOME/.ssh/deploy_key" -p "$VPS_SSH_PORT" \
+            "$VPS_USERNAME@$VPS_HOST" \
+            "$VPS_APP_DIR/scripts/deploy.sh '$VERSION' '$GHCR_OWNER'"

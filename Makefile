@@ -1,4 +1,4 @@
-.PHONY: up down build logs backend-build backend-run backend-test backend-lint frontend-dev
+.PHONY: up down build backend-image nginx-image logs backend-build backend-run backend-test backend-lint frontend-dev
 
 # ── Docker Compose ────────────────────────────────────────────────────────────
 
@@ -9,7 +9,13 @@ down:
 	docker compose down
 
 build:
-	docker compose build
+	$(MAKE) backend-image nginx-image
+
+backend-image:
+	docker build --file apps/backend/Dockerfile --build-arg VERSION=dev --tag portfolio-backend:dev apps/backend
+
+nginx-image:
+	docker build --file apps/frontend/Dockerfile --build-arg VERSION=dev --tag portfolio-nginx:dev .
 
 logs:
 	docker compose logs -f
